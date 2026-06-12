@@ -1,1 +1,722 @@
+<script type="module">
 
+import { initializeApp }
+from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+
+import {
+getFirestore,
+doc,
+setDoc,
+getDoc,
+collection,
+addDoc,
+onSnapshot,
+deleteDoc,
+getDocs
+}
+from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+
+const firebaseConfig = {
+
+apiKey: "AIzaSyCY4hEg7B7qZFCiJpFhCCQrhGSatMQKBTM",
+
+authDomain:
+"shipin-b9be2.firebaseapp.com",
+
+projectId:
+"shipin-b9be2",
+
+storageBucket:
+"shipin-b9be2.firebasestorage.app",
+
+messagingSenderId:
+"1090538258142",
+
+appId:
+"1:1090538258142:web:8c178346569c58e25bcc4f"
+
+};
+
+const app =
+initializeApp(firebaseConfig);
+
+const db =
+getFirestore(app);
+
+const servers = {
+
+iceServers:[
+{
+urls:
+[
+"stun:stun.l.google.com:19302",
+"stun:stun1.l.google.com:19302"
+]
+}
+]
+
+};
+
+let pc;
+
+let localStream;
+
+let remoteStream;
+
+let currentCamera =
+"user";
+
+const localVideo =
+document.getElementById("localVideo");
+
+const remoteVideo =
+document.getElementById("remoteVideo");
+
+const statusDiv =
+document.getElementById("status");
+
+async function startCamera(){
+
+localStream =
+await navigator.mediaDevices
+.getUserMedia({
+
+video:{
+facingMode:
+currentCamera
+},
+
+audio:true
+
+});
+
+remoteStream =
+new MediaStream();
+
+localVideo.srcObject =
+localStream;
+
+remoteVideo.srcObject =
+remoteStream;
+
+pc =
+new RTCPeerConnection(
+servers
+);
+
+localStream
+.getTracks()
+.forEach(track=>{
+
+pc.addTrack(
+track,
+localStream
+);
+
+});
+
+pc.ontrack = event=>{
+
+event.streams[0]
+.getTracks()
+.forEach(track=>{
+
+remoteStream
+.addTrack(track);
+
+});
+
+};
+
+}
+
+await startCamera();
+
+statusDiv.innerText =
+"摄像头已启动";
+
+  <div class="container">
+
+<h1>视频通话</h1>
+
+<div class="top">
+
+<button id="createBtn">
+创建房间
+</button>
+
+<input
+id="roomInput"
+placeholder="输入房间号">
+
+<button id="joinBtn">
+加入房间
+</button>
+
+</div>
+
+<div class="room">
+
+当前房间：
+
+<span id="roomId">
+未连接
+</span>
+
+</div>
+
+<div class="videos">
+
+<div>
+
+<h3>本地画面</h3>
+
+<video
+id="localVideo"
+autoplay
+playsinline
+muted>
+</video>
+
+</div>
+
+<div>
+
+<h3>远程画面</h3>
+
+<video
+id="remoteVideo"
+autoplay
+playsinline>
+</video>
+
+</div>
+
+</div>
+
+<div class="controls">
+
+<button id="switchCamera">
+切换摄像头
+</button>
+
+<button id="toggleMic">
+麦克风
+</button>
+
+<button id="toggleVideo">
+摄像头
+</button>
+
+<button id="hangup">
+挂断
+</button>
+
+</div>
+
+<div id="status">
+初始化中...
+</div>
+
+</div>
+
+<style>
+
+body{
+background:#111;
+color:white;
+font-family:sans-serif;
+margin:0;
+padding:20px;
+}
+
+.container{
+max-width:1200px;
+margin:auto;
+}
+
+.top{
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+margin-bottom:15px;
+}
+
+input{
+padding:10px;
+}
+
+button{
+padding:10px;
+cursor:pointer;
+}
+
+.videos{
+display:flex;
+gap:20px;
+flex-wrap:wrap;
+}
+
+video{
+width:500px;
+max-width:100%;
+background:black;
+border-radius:12px;
+}
+
+.controls{
+margin-top:20px;
+display:flex;
+gap:10px;
+flex-wrap:wrap;
+}
+
+#status{
+margin-top:20px;
+color:#90caf9;
+}
+
+</style>
+
+  let roomRef;
+
+let roomId;
+
+document
+.getElementById("createBtn")
+.onclick = createRoom;
+
+document
+.getElementById("joinBtn")
+.onclick = joinRoom;
+
+async function createRoom(){
+
+roomId =
+Math.floor(
+100000 +
+Math.random()*900000
+).toString();
+
+document
+.getElementById("roomId")
+.innerText =
+roomId;
+
+roomRef =
+doc(
+db,
+"rooms",
+roomId
+);
+
+const callerCandidates =
+collection(
+roomRef,
+"callerCandidates"
+);
+
+pc.onicecandidate =
+async event=>{
+
+if(event.candidate){
+
+await addDoc(
+callerCandidates,
+event.candidate.toJSON()
+);
+
+}
+
+};
+
+const offer =
+await pc.createOffer();
+
+await pc.setLocalDescription(
+offer
+);
+
+await setDoc(
+roomRef,
+{
+offer:{
+type:offer.type,
+sdp:offer.sdp
+},
+createdAt:
+Date.now()
+}
+);
+
+onSnapshot(
+roomRef,
+async snapshot=>{
+
+const data =
+snapshot.data();
+
+if(
+!pc.currentRemoteDescription &&
+data?.answer
+){
+
+await pc
+.setRemoteDescription(
+new RTCSessionDescription(
+data.answer
+)
+);
+
+statusDiv.innerText =
+"已连接";
+
+}
+
+}
+);
+
+onSnapshot(
+collection(
+roomRef,
+"calleeCandidates"
+),
+snapshot=>{
+
+snapshot
+.docChanges()
+.forEach(change=>{
+
+if(
+change.type ===
+"added"
+){
+
+const candidate =
+new RTCIceCandidate(
+change.doc.data()
+);
+
+pc.addIceCandidate(
+candidate
+);
+
+}
+
+});
+
+});
+
+statusDiv.innerText =
+"房间创建成功";
+
+}
+
+async function joinRoom(){
+
+roomId =
+document
+.getElementById("roomInput")
+.value
+.trim();
+
+if(!roomId){
+
+alert("请输入房间号");
+
+return;
+
+}
+
+roomRef =
+doc(
+db,
+"rooms",
+roomId
+);
+
+const roomSnapshot =
+await getDoc(
+roomRef
+);
+
+if(
+!roomSnapshot.exists()
+){
+
+alert("房间不存在");
+
+return;
+
+}
+
+const roomData =
+roomSnapshot.data();
+
+const calleeCandidates =
+collection(
+roomRef,
+"calleeCandidates"
+);
+
+pc.onicecandidate =
+async event=>{
+
+if(event.candidate){
+
+await addDoc(
+calleeCandidates,
+event.candidate.toJSON()
+);
+
+}
+
+};
+
+await pc.setRemoteDescription(
+new RTCSessionDescription(
+roomData.offer
+)
+);
+
+const answer =
+await pc.createAnswer();
+
+await pc.setLocalDescription(
+answer
+);
+
+await setDoc(
+roomRef,
+{
+...roomData,
+
+answer:{
+type:answer.type,
+sdp:answer.sdp
+}
+}
+);
+
+onSnapshot(
+collection(
+roomRef,
+"callerCandidates"
+),
+snapshot=>{
+
+snapshot
+.docChanges()
+.forEach(change=>{
+
+if(
+change.type==="added"
+){
+
+const candidate =
+new RTCIceCandidate(
+change.doc.data()
+);
+
+pc.addIceCandidate(
+candidate
+);
+
+}
+
+});
+
+});
+
+document
+.getElementById("roomId")
+.innerText =
+roomId;
+
+statusDiv.innerText =
+"已加入房间";
+
+}
+
+  document
+.getElementById("switchCamera")
+.onclick =
+async ()=>{
+
+currentCamera =
+currentCamera === "user"
+? "environment"
+: "user";
+
+const newStream =
+await navigator
+.mediaDevices
+.getUserMedia({
+
+video:{
+facingMode:
+currentCamera
+},
+
+audio:true
+
+});
+
+const videoTrack =
+newStream
+.getVideoTracks()[0];
+
+const sender =
+pc.getSenders()
+.find(sender=>
+sender.track &&
+sender.track.kind ===
+"video"
+);
+
+if(sender){
+
+await sender
+.replaceTrack(
+videoTrack
+);
+
+}
+
+localVideo.srcObject =
+newStream;
+
+localStream
+.getTracks()
+.forEach(track=>
+track.stop()
+);
+
+localStream =
+newStream;
+
+statusDiv.innerText =
+"摄像头已切换";
+
+};
+
+document
+.getElementById("toggleMic")
+.onclick = ()=>{
+
+localStream
+.getAudioTracks()
+.forEach(track=>{
+
+track.enabled =
+!track.enabled;
+
+});
+
+};
+
+document
+.getElementById("toggleVideo")
+.onclick = ()=>{
+
+localStream
+.getVideoTracks()
+.forEach(track=>{
+
+track.enabled =
+!track.enabled;
+
+});
+
+};
+
+document
+.getElementById("hangup")
+.onclick =
+hangup;
+
+async function hangup(){
+
+if(pc){
+
+pc.close();
+
+}
+
+if(localStream){
+
+localStream
+.getTracks()
+.forEach(track=>
+track.stop()
+);
+
+}
+
+if(roomRef){
+
+try{
+
+const callerDocs =
+await getDocs(
+collection(
+roomRef,
+"callerCandidates"
+)
+);
+
+for(
+const docItem
+of callerDocs.docs
+){
+
+await deleteDoc(
+docItem.ref
+);
+
+}
+
+const calleeDocs =
+await getDocs(
+collection(
+roomRef,
+"calleeCandidates"
+)
+);
+
+for(
+const docItem
+of calleeDocs.docs
+){
+
+await deleteDoc(
+docItem.ref
+);
+
+}
+
+await deleteDoc(
+roomRef
+);
+
+}catch(err){
+
+console.log(err);
+
+}
+
+}
+
+document
+.getElementById("roomId")
+.innerText =
+"未连接";
+
+statusDiv.innerText =
+"通话结束";
+
+location.reload();
+
+}
+
+</script>
